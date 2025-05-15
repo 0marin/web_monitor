@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web Monitor - Selector</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input[type="text"],
+        input[type="number"] {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        #result {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: #f9f9f9;
+        }
+        .highlight {
+            background-color: rgba(255, 255, 0, 0.3);
+            outline: 2px solid #4CAF50;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Web Monitor - Выбор элемента</h1>
+        
+        <div class="form-group">
+            <label for="url">URL страницы:</label>
+            <input type="text" id="url" placeholder="https://example.com">
+        </div>
+
+        <div class="form-group">
+            <label for="chatId">Telegram Chat ID:</label>
+            <input type="text" id="chatId" placeholder="Ваш Chat ID из Telegram бота">
+        </div>
+
+        <div class="form-group">
+            <label for="interval">Интервал проверки (в секундах):</label>
+            <input type="number" id="interval" min="60" value="300">
+        </div>
+
+        <div class="form-group">
+            <label for="name">Название задачи:</label>
+            <input type="text" id="name" placeholder="Например: Цена товара">
+        </div>
+
+        <button onclick="startSelection()">Выбрать элемент</button>
+        <div id="result"></div>
+    </div>
+
+    <script>
+        let selectedElement = null;
+
+        function startSelection() {
+            const url = document.getElementById('url').value;
+            if (!url) {
+                alert('Введите URL страницы');
+                return;
+            }
+
+            // Создаем iframe для загрузки страницы
+            const iframe = document.createElement('iframe');
+            iframe.style.width = '100%';
+            iframe.style.height = '600px';
+            iframe.style.border = '1px solid #ddd';
+            iframe.style.borderRadius = '4px';
+            iframe.style.marginTop = '20px';
+            
+            document.querySelector('.container').appendChild(iframe);
+
+            iframe.addEventListener('load', function() {
+                setupSelector(iframe);
+            });
+
+            iframe.src = url;
+        }
+
+        function setupSelector(iframe) {
+            const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+            
+            // Добавляем стили для подсветки
+            const style = iframeDoc.createElement('style');
+            style.textContent = '.highlight { background-color: rgba(255, 255, 0, 0.3) !important; outline: 2px solid #4CAF50 !important; }';
+            iframeDoc.head.appendChild(style);
+
+            // Добавляем обработчики событий
+            iframeDoc.body.addEventListener('mouseover', function(e) {
+                if (selectedElement) return;
+                e.target.classList.add('highlight');
+            });
+
+            iframeDoc.body.addEventListener('mouseout', function(e) {
+                if (selectedElement) return;
+                e.target.classList.remove('highlight');
+            });
+
+            iframeDoc.body.addEventListener('click', function(e) {
+                e.preventDefault();
+                
+                if (selectedElement) {
+                    selectedElement.classList.remove('highlight');
+                }
+
+                selectedElement = e.target;
+                selectedElement.classList.add('highlight');
+
+                // Генерируем селектор
+                const selector = generateSelector(selectedElement);
+                
+                // Показываем результат
+                showResult(selector);
+            });
+        }
+
+        function generateSelector(element) {
+            let path = [];
+            while (element.nodeType === Node.ELEMENT_NODE) {
+                let selector = element.nodeName.toLowerCase();
+                if (element.id) {
+                    selector = '#' + element.id;
+                    path.unshift(selector);
+                    break;
+                } else {
+                    let sibling = element;
+                    let nth = 1;
+                    while (sibling = sibling.previousElementSibling) {
+                        if (sibling.nodeName.toLowerCase() === selector) nth++;
+                    }
+                    if (nth > 1) selector += ':nth-of-type(' + nth + ')';
+                }
+                path.unshift(selector);
+                element = element.parentNode;
+            }
+            return path.join(' > ');
+        }
+
+        function showResult(selector) {
+            const chatId = document.getElementById('chatId').value;
+            const interval = document.getElementById('interval').value;
+            const name = document.getElementById('name').value;
+            const url = document.getElementById('url').value;
+
+            const data = {
+                url,
+                selector,
+                interval: parseInt(interval),
+                telegramChatId: chatId,
+                name: name || 'Мониторинг ' + url
+            };
+
+            document.getElementById('result').innerHTML = `
+                <h3>Выбранный элемент:</h3>
+                <pre>${JSON.stringify(data, null, 2)}</pre>
+                <button onclick="createMonitor(${JSON.stringify(data)})">Создать задачу мониторинга</button>
+            `;
+        }
+
+        function createMonitor(data) {
+            fetch('/api/monitoring', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(data)
+            })
+            .then(response => response.json())
+            .then(data => {
+                alert('Задача мониторинга успешно создана!');
+            })
+            .catch(error => {
+                alert('Ошибка при создании задачи: ' + error.message);
+            });
+        }
+    </script>
+</body>
+</html>
